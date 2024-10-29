@@ -240,7 +240,7 @@ void SmokeMergedDetectMalf::run(vector<String> &videos) {
         }
 
         int frame_count = 0;
-        Mat frame, gray, bgimage;
+        Mat frame, gray, bgimage, fgmask;
         Ptr<BackgroundSubtractor> bg_model = createBackgroundSubtractorMOG2(bg_history_len, 30, false);
 
         while (cap.isOpened()) {
@@ -252,7 +252,8 @@ void SmokeMergedDetectMalf::run(vector<String> &videos) {
 
             cvtColor(frame, gray, COLOR_BGR2GRAY);
             gray = letterbox(gray);
-            bg_model->apply(gray, bgimage);
+            bg_model->apply(gray, fgmask);
+            bg_model->getBackgroundImage(bgimage);
 
             if (frame_count > 5) {
                 malf_process(gray, bgimage, 32);

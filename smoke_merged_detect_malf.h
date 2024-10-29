@@ -12,7 +12,7 @@ using namespace std;
 
 class SmokeMergedDetectMalf {
 public:
-    SmokeMergedDetectMalf(int bg_history_len = 30, int contrast = 5, int vid_stride = 25, bool nb_flag = true,
+    explicit SmokeMergedDetectMalf(int bg_history_len = 75, int contrast = 5, int vid_stride = 25, bool nb_flag = true,
                           int wait_time = 0, bool shown_mode = false, bool save_mode = false, bool malf_mode = true,
                           int phase_pos = 0, string save_dir = "smd");
 
@@ -21,16 +21,16 @@ public:
 private:
     void malf_reset();
 
-    Mat apply_laplacian(const Mat &gray_frame);
+    static Mat apply_laplacian(const Mat &gray_frame);
 
     void malf_process(const cv::Mat &frame1, const cv::Mat &frame2, int bs = 16);
 
-    void compare_variance_frames(const Mat &var_frame1, const Mat &var_frame2, Mat &result, int max_value);
+    static void compare_variance_frames(const Mat &var_frame1, const Mat &var_frame2, Mat &result, int max_value);
 
-    cv::Mat letterbox(const cv::Mat &im, int new_shape = 1280, const cv::Scalar &color = cv::Scalar(114, 114, 114),
+    static cv::Mat letterbox(const cv::Mat &im, int new_shape = 1280, const cv::Scalar &color = cv::Scalar(114, 114, 114),
                       bool auto_ = true, bool scaleFill = false, bool scaleup = true, int stride = 32);
 
-    void calculate_block_variances(const Mat &lap_frame, Mat &variances, Size block_size);
+    static void calculate_block_variances(const Mat &lap_frame, Mat &variances, Size block_size);
 
     // Class members
     int contrast;
