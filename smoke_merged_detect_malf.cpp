@@ -2,7 +2,7 @@
 
 SmokeMergedDetectMalf::SmokeMergedDetectMalf(int bg_history_len, int contrast, int vid_stride, bool nb_flag,
                                              int wait_time, bool shown_mode, bool save_mode, bool malf_mode,
-                                             int phase_pos, string save_dir)
+                                             int phase_pos, std::string save_dir)
         : contrast(contrast),
           bg_history_len(bg_history_len),
           vid_stride(vid_stride),
@@ -26,9 +26,9 @@ void SmokeMergedDetectMalf::malf_reset() {
     blackout_count = 0;
 }
 
-Mat SmokeMergedDetectMalf::apply_laplacian(const Mat &gray_frame) {
-    Mat lap;
-    Laplacian(gray_frame, lap, CV_64F);
+cv::Mat SmokeMergedDetectMalf::apply_laplacian(const cv::Mat &gray_frame) {
+    cv::Mat lap;
+    cv::Laplacian(gray_frame, lap, CV_64F);
     return lap;
 }
 
@@ -139,12 +139,13 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
     }
 }
 
-void SmokeMergedDetectMalf::compare_variance_frames(const Mat &var_frame1, const Mat &var_frame2, Mat &result,
-                                                    int max_value) {
-    Mat res;
-    divide(var_frame1, var_frame2 + 10, res);
+void
+SmokeMergedDetectMalf::compare_variance_frames(const cv::Mat &var_frame1, const cv::Mat &var_frame2, cv::Mat &result,
+                                               int max_value) {
+    cv::Mat res;
+    cv::divide(var_frame1, var_frame2 + 10, res);
     res.setTo(0.9, res < 0.9);
-    log(res + 0.1, res);
+    cv::log(res + 0.1, res);
     res *= 30;
     res.setTo(0, res < 0);
     res.setTo(max_value, res > max_value);
@@ -208,21 +209,22 @@ cv::Mat SmokeMergedDetectMalf::letterbox(const cv::Mat &im, int new_shape, const
     return output;
 }
 
-void SmokeMergedDetectMalf::calculate_block_variances(const Mat &lap_frame, Mat &variances, Size block_size) {
+void
+SmokeMergedDetectMalf::calculate_block_variances(const cv::Mat &lap_frame, cv::Mat &variances, cv::Size block_size) {
     int variance_rows = lap_frame.rows / block_size.height;
     int variance_cols = lap_frame.cols / block_size.width;
-    variances = Mat::zeros(variance_rows, variance_cols, CV_64F);
+    variances = cv::Mat::zeros(variance_rows, variance_cols, CV_64F);
 
     for (int i = 0; i < variance_rows; ++i) {
         for (int j = 0; j < variance_cols; ++j) {
             int start_x = j * block_size.width;
             int start_y = i * block_size.height;
-            Rect block_area(start_x, start_y, block_size.width, block_size.height);
+            cv::Rect block_area(start_x, start_y, block_size.width, block_size.height);
 
             if (start_x + block_size.width <= lap_frame.cols && start_y + block_size.height <= lap_frame.rows) {
-                Mat block = lap_frame(block_area);
-                Scalar mean, stddev;
-                meanStdDev(block, mean, stddev);
+                cv::Mat block = lap_frame(block_area);
+                cv::Scalar mean, stddev;
+                cv::meanStdDev(block, mean, stddev);
 
                 variances.at<double>(i, j) = stddev[0] * stddev[0];
             }
@@ -230,27 +232,27 @@ void SmokeMergedDetectMalf::calculate_block_variances(const Mat &lap_frame, Mat 
     }
 }
 
-void SmokeMergedDetectMalf::run(vector<String> &videos) {
-    for (const string &video_path: videos) {
-        cout << "Processing: " << video_path << endl;
-        VideoCapture cap(video_path);
+void SmokeMergedDetectMalf::run(std::vector<std::string> &videos) {
+    for (const std::string &video_path: videos) {
+        std::cout << "Processing: " << video_path << std::endl;
+        cv::VideoCapture cap(video_path);
         if (!cap.isOpened()) {
-            cerr << "Error opening video file." << endl;
+            std::cerr << "Error opening video file." << std::endl;
             continue;
         }
 
         int frame_count = 0;
-        Mat frame, gray, bgimage, fgmask;
-        Ptr<BackgroundSubtractor> bg_model = createBackgroundSubtractorMOG2(bg_history_len, 30, false);
+        cv::Mat frame, gray, bgimage, fgmask;
+        cv::Ptr<cv::BackgroundSubtractor> bg_model = cv::createBackgroundSubtractorMOG2(bg_history_len, 30, false);
 
         while (cap.isOpened()) {
-            cap.set(CAP_PROP_POS_FRAMES, vid_stride * frame_count + phase_pos);
+            cap.set(cv::CAP_PROP_POS_FRAMES, vid_stride * frame_count + phase_pos);
 
             if (!cap.read(frame)) {
                 break;
             }
 
-            cvtColor(frame, gray, COLOR_BGR2GRAY);
+            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
             gray = letterbox(gray);
             bg_model->apply(gray, fgmask);
             bg_model->getBackgroundImage(bgimage);
@@ -261,7 +263,7 @@ void SmokeMergedDetectMalf::run(vector<String> &videos) {
             frame_count++;
 
             if (wait_time != 0) {
-                waitKey(wait_time);
+                cv::waitKey(wait_time);
             }
         }
     }

@@ -7,30 +7,30 @@
 #include <string>
 #include <cmath>
 
-using namespace cv;
-using namespace std;
-
 class SmokeMergedDetectMalf {
 public:
     explicit SmokeMergedDetectMalf(int bg_history_len = 75, int contrast = 5, int vid_stride = 25, bool nb_flag = true,
-                          int wait_time = 0, bool shown_mode = false, bool save_mode = false, bool malf_mode = true,
-                          int phase_pos = 0, string save_dir = "smd");
+                                   int wait_time = 0, bool shown_mode = false, bool save_mode = false,
+                                   bool malf_mode = true,
+                                   int phase_pos = 0, std::string save_dir = "smd");
 
-    void run(vector<String> &videos);
+    void run(std::vector<cv::String> &videos);
 
 private:
     void malf_reset();
 
-    static Mat apply_laplacian(const Mat &gray_frame);
+    static cv::Mat apply_laplacian(const cv::Mat &gray_frame);
 
     void malf_process(const cv::Mat &frame1, const cv::Mat &frame2, int bs = 16);
 
-    static void compare_variance_frames(const Mat &var_frame1, const Mat &var_frame2, Mat &result, int max_value);
+    static void
+    compare_variance_frames(const cv::Mat &var_frame1, const cv::Mat &var_frame2, cv::Mat &result, int max_value);
 
-    static cv::Mat letterbox(const cv::Mat &im, int new_shape = 1280, const cv::Scalar &color = cv::Scalar(114, 114, 114),
-                      bool auto_ = true, bool scaleFill = false, bool scaleup = true, int stride = 32);
+    static cv::Mat
+    letterbox(const cv::Mat &im, int new_shape = 1280, const cv::Scalar &color = cv::Scalar(114, 114, 114),
+              bool auto_ = true, bool scaleFill = false, bool scaleup = true, int stride = 32);
 
-    static void calculate_block_variances(const Mat &lap_frame, Mat &variances, Size block_size);
+    static void calculate_block_variances(const cv::Mat &lap_frame, cv::Mat &variances, cv::Size block_size);
 
     // Class members
     int contrast;
