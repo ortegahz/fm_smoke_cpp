@@ -40,6 +40,8 @@ private:
     bool nb;
     int wait_time;
     bool malf_mode;
+    std::vector<double> latest_laps;
+    float lap_recover_value = 1000;
 
     // Malfunction state variables
     int invis_count;

@@ -32,6 +32,8 @@ void SmokeMergedDetectMalf::malf_reset() {
     exposed_flag = false;
     dark_flag = false;
     blackout_count = 0;
+    latest_laps.clear();
+    lap_recover_value = 1000;
 }
 
 cv::Mat SmokeMergedDetectMalf::apply_laplacian(const cv::Mat &gray_frame) {
@@ -89,6 +91,18 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
         std::size_t slice_start = static_cast<std::size_t>(var_frame1_data.size() * 0.8);
         std::vector<double> top_20_percent(var_frame1_data.begin() + slice_start, var_frame1_data.end());
         double lap_value = mean(top_20_percent);
+
+        latest_laps.push_back(lap_value);
+        if (latest_laps.size() > 120) {
+            latest_laps.erase(latest_laps.begin());
+        }
+        std::size_t half_size = latest_laps.size() / 2;  // Calculate half the size
+        double lap_last = 0.0;
+        if (half_size > 0) {
+            lap_last = std::accumulate(latest_laps.begin(), latest_laps.begin() + half_size, 0.0) / half_size;
+        }
+        bool lap_condition = (latest_laps.size() > 2 && lap_last / std::max(lap_value, 1.0) > 5 && lap_value < 700) || (lap_value < 200);
+        std::cout << "lap_value=" << lap_value << ", lap_last=" << lap_last << std::endl;
 
         // std::cout << "Values in top_20_percent:" << std::endl;
         // std::cout << "top_20_percent.size() --> " << top_20_percent.size() << std::endl;
@@ -160,7 +174,7 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
         }
 
         if (!dark_flag) {
-            if (cur_gray < gray_min_thresh && lap_value < lap_thresh) {
+            if (cur_gray < gray_min_thresh && lap_condition) {
                 blackout_count += 1;
                 if (blackout_count >= blackout_countmax) {
                     dark_flag = true;
@@ -183,12 +197,19 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
 
         if (!invis_flag) {
             // LOGD("invis_count --> %d \r\n", invis_count);
-            if (lap_value > lap_thresh) {
+            if (!lap_condition) {
                 invis_count = std::max(0, invis_count - 1);
             } else {
                 invis_count++;
                 if (invis_count == invis_countmax) {
                     std::cout << "Malfunction - Loss of visibility" << std::endl;
+
+                    // Calculate lap_recover_value
+                    size_t half_size = latest_laps.size() / 2;
+                    std::vector<double> first_half(latest_laps.begin(), latest_laps.begin() + half_size);
+                    float lap_mean = mean(first_half);
+                    lap_recover_value = std::min(1000.0f, lap_mean);
+                    std::cout << "lap_recover_value = " << lap_recover_value << std::endl;
 
                     cv::Mat frame1_resized;
                     cv::resize(frame1, frame1_resized, cv::Size(32, 24));
@@ -214,7 +235,7 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
         }
 
         if (invis_flag) {
-            if (lap_value >= 1500) {
+            if (lap_value >= lap_recover_value) {
                 invis_recover_count++;
                 if (invis_recover_count >= invis_recover_countmax) {
                     invis_flag = false;
@@ -227,7 +248,7 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
                 invis_recover_count = 0;
             }
         }
-        std::cout << "CONTR:" << contr_flag << "INVIS:" << invis_flag << ", EXP:" << exposed_flag << ", DAR:"
+        std::cout << "CONTR:" << contr_flag << ", INVIS:" << invis_flag << ", EXP:" << exposed_flag << ", DAR:"
                   << dark_flag
                   << ", B:" << blackout << ", value=" << comp_value
                   << ", ic=" << invis_count << ", irc=" << invis_recover_count << ", bc=" << blackout_count
