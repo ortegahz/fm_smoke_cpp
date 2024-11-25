@@ -1,4 +1,5 @@
 #include "smoke_merged_detect_malf.h"
+#include <numeric>
 
 SmokeMergedDetectMalf::SmokeMergedDetectMalf(int bg_history_len, int contrast, int vid_stride, bool nb_flag,
                                              int wait_time, bool shown_mode, bool save_mode, bool malf_mode,
@@ -14,6 +15,13 @@ SmokeMergedDetectMalf::SmokeMergedDetectMalf(int bg_history_len, int contrast, i
         this->bg_history_len = 75;
         malf_reset();
     }
+}
+
+double mean(const std::vector<double> &data) {
+    if (data.empty())
+        return 0.0;
+    double sum = std::accumulate(data.begin(), data.end(), 0.0);
+    return sum / data.size();
 }
 
 void SmokeMergedDetectMalf::malf_reset() {
@@ -34,18 +42,68 @@ cv::Mat SmokeMergedDetectMalf::apply_laplacian(const cv::Mat &gray_frame) {
 
 void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &frame2, int bs) {
     cv::Size block_size(bs, bs);
+
     cv::Mat lap1 = apply_laplacian(frame1);
-    cv::Mat lap2 = apply_laplacian(frame2);
+    // cv::Mat lap2 = apply_laplacian(frame2);
 
     cv::Mat var_frame1, var_frame2;
     calculate_block_variances(lap1, var_frame1, block_size);
-    calculate_block_variances(lap2, var_frame2, block_size);
+    // calculate_block_variances(lap2, var_frame2, block_size);
 
     if (malf_mode) {
-        cv::Mat comparison_result;
-        compare_variance_frames(var_frame2, var_frame1, comparison_result, 120);
+        int blackout_countmax = 5; // 20
+        int invis_countmax = 3;     // 20
+        int invis_recover_countmax = 10;
+        int lap_thresh = 100, gray_min_thresh = 80, gray_max_thresh = 220;
+        int exposed_countmax = 5;
 
-        int comp_len = cv::countNonZero(var_frame2 >= 100);
+        std::vector<double> var_frame1_data;
+        var_frame1_data.reserve(var_frame1.total());
+
+        // var_frame1.forEach<double>([&](double &value, const int *position) -> void
+        //                            { var_frame1_data.push_back(value); });
+
+        // std::cout << "var_frame1.size() --> " << var_frame1.size() << std::endl;
+
+        // var_frame1.forEach<double>([&](double &value, const int *position) -> void {
+        //     std::cout << "Extracted value: " << value << std::endl;
+        //     var_frame1_data.push_back(value);
+        // });
+
+        for (int i = 0; i < var_frame1.rows; ++i) {
+            for (int j = 0; j < var_frame1.cols; ++j) {
+                double value = var_frame1.at<double>(i, j);
+                var_frame1_data.push_back(value);
+            }
+        }
+
+        std::sort(var_frame1_data.begin(), var_frame1_data.end());
+
+        // std::cout << "var_frame1_data.size() --> " << var_frame1_data.size() << std::endl;
+
+        // std::cout << "All values in var_frame1_data:" << std::endl;
+        // for (double value : var_frame1_data) {
+        //     std::cout << value << std::endl;
+        // }
+
+        std::size_t slice_start = static_cast<std::size_t>(var_frame1_data.size() * 0.8);
+        std::vector<double> top_20_percent(var_frame1_data.begin() + slice_start, var_frame1_data.end());
+        double lap_value = mean(top_20_percent);
+
+        // std::cout << "Values in top_20_percent:" << std::endl;
+        // std::cout << "top_20_percent.size() --> " << top_20_percent.size() << std::endl;
+        // for (double value : top_20_percent) {
+        //     std::cout << value << std::endl;
+        // }
+
+        // double lap_value = 0.0;
+
+        // LOGD("lap_value --> %f \r\n", lap_value);
+
+        // cv::Mat comparison_result;
+        // compare_variance_frames(var_frame2, var_frame1, comparison_result, 120);
+
+        // int comp_len = cv::countNonZero(var_frame2 >= 100);
         double bg_gray = cv::mean(frame2)[0];
         double cur_gray = cv::mean(frame1)[0];
         double comp_value = -1;
@@ -54,76 +112,113 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
         cv::Laplacian(frame1, lap, CV_64F);
         double lap_overall = cv::mean(lap.mul(lap))[0];
 
-        if (std::max(bg_gray, cur_gray) / std::max(20.0, std::min(bg_gray, cur_gray)) >= 2 || cur_gray < 30 ||
-            cur_gray > 220) {
-            blackout = true;
-            blackout_count += 2;
-            if (blackout_count >= 20) {
-                if (cur_gray < 30 && lap_overall < 500) {
-                    if (!dark_flag) {
-                        dark_flag = true;
-                        std::cout << "Malfunction - Too dark" << std::endl;
-                    }
-                } else if (cur_gray > 220 && lap_overall < 500) {
-                    if (!exposed_flag) {
-                        exposed_flag = true;
-                        std::cout << "Malfunction - Exposed" << std::endl;
-                    }
-                }
-            }
-            blackout_count = std::min(20, blackout_count);
-        } else {
-            blackout = false;
-        }
+        std::cout << ", bg_gray:" << bg_gray << ", cur_gray:" << cur_gray
+                  << ", lap_value:" << lap_value << std::endl;
 
-        if (blackout || blackout_count != 0) {
-            blackout_count--;
-        } else {
-            if (blackout_count == 0) {
-                if (exposed_flag) {
-                    exposed_flag = false;
-                    std::cout << "Remove the Malfunction - Exposed" << std::endl;
-                }
-                if (dark_flag) {
-                    dark_flag = false;
-                    std::cout << "Remove the Malfunction - Too dark" << std::endl;
-                }
-            }
-            if (comp_len > 80) {
-                cv::Scalar mean_val, stddev_val;
-                cv::meanStdDev(comparison_result, mean_val, stddev_val, var_frame2 >= 100);
-                comp_value = mean_val[0];
-                if (!invis_flag) {
-                    if (comp_value < 40) {
-                        invis_count = std::max(0, invis_count - 1);
-                    } else {
-                        invis_count++;
-                        if (invis_count == 20) {
-                            std::cout << "Malfunction - Loss of visibility" << std::endl;
-                            invis_flag = true;
-                        }
-                    }
+
+        // new exposed logics
+        cv::Mat frame1_resized;
+        cv::resize(frame1, frame1_resized, cv::Size(32, 24));
+
+        // Convert to single channel and ensure it's 8-bit
+        frame1_resized.convertTo(frame1_resized, CV_8UC1);
+
+        // Flatten the frame to a vector
+        std::vector<uchar> frame1_flatten;
+        frame1_flatten.assign(frame1_resized.datastart, frame1_resized.dataend);
+
+        // Sort the flattened vector
+        std::sort(frame1_flatten.begin(), frame1_flatten.end());
+
+        // Calculate the mean of the top 10% brightest values
+        int threshold_index = static_cast<int>(frame1_flatten.size() * 0.9);
+        double brighter_value = std::accumulate(frame1_flatten.begin() + threshold_index, frame1_flatten.end(), 0.0) /
+                                (frame1_flatten.end() - (frame1_flatten.begin() + threshold_index));
+
+        std::cout << "brighter_value=" << brighter_value << std::endl;
+
+        if (!exposed_flag) {
+            if (brighter_value > 230) {
+                exposed_count += 1;
+                if (exposed_count >= exposed_countmax) {
+                    exposed_flag = true;
+                    exposed_count = exposed_countmax;
+                    std::cout << "Malfunction - Exposed" << std::endl;
                 }
             } else {
-                if (!invis_flag) {
-                    if (invis_count > 10) {
-                        invis_count++;
-                        if (invis_count == 20) {
-                            std::cout << "Malfunction - Loss of visibility" << std::endl;
-                            invis_flag = true;
-                        }
+                exposed_count = std::max(0, exposed_count - 1);
+            }
+        } else {
+            if (brighter_value <= 200) {
+                exposed_count -= 1;
+                if (exposed_count <= 0) {
+                    exposed_flag = false;
+                    exposed_count = 0;
+                    std::cout << "Remove the Malfunction - Exposed" << std::endl;
+                }
+            }
+        }
+
+        if (!dark_flag) {
+            if (cur_gray < gray_min_thresh && lap_value < lap_thresh) {
+                blackout_count += 1;
+                if (blackout_count >= blackout_countmax) {
+                    dark_flag = true;
+                    blackout_count = blackout_countmax;
+                    std::cout << "Malfunction - Dark" << std::endl;
+                }
+            } else {
+                blackout_count = std::max(0, blackout_count - 1);
+            }
+        } else {
+            if (cur_gray >= 100) {
+                blackout_count -= 1;
+                if (blackout_count <= 0) {
+                    dark_flag = false;
+                    blackout_count = 0;
+                    std::cout << "Remove the Malfunction - Dark" << std::endl;
+                }
+            }
+        }
+
+        if (!invis_flag) {
+            // LOGD("invis_count --> %d \r\n", invis_count);
+            if (lap_value > lap_thresh) {
+                invis_count = std::max(0, invis_count - 1);
+            } else {
+                invis_count++;
+                if (invis_count == invis_countmax) {
+                    std::cout << "Malfunction - Loss of visibility" << std::endl;
+
+                    cv::Mat frame1_resized;
+                    cv::resize(frame1, frame1_resized, cv::Size(32, 24));
+
+                    frame1_resized.convertTo(frame1_resized, CV_8U);
+
+                    double minVal, maxVal;
+                    cv::minMaxLoc(frame1_resized, &minVal, &maxVal);
+                    int contrast_value = static_cast<int>(maxVal - minVal);
+
+                    std::cout << "contrast_value=" << contrast_value << std::endl;
+
+                    if (contrast_value < 190) {
+                        std::cout << "对比度损失故障报出" << std::endl;
+                        contr_flag = true;
                     } else {
-                        invis_count--;
+                        std::cout << "清晰度损失故障报出" << std::endl;
+                        contr_flag = false;
                     }
+                    invis_flag = true;
                 }
             }
         }
 
         if (invis_flag) {
-            if (comp_value < 0.3 && comp_value != -1 && lap_overall > 200) {
+            if (lap_value >= 1500) {
                 invis_recover_count++;
-                if (invis_recover_count >= 10) {
+                if (invis_recover_count >= invis_recover_countmax) {
                     invis_flag = false;
+                    contr_flag = false;
                     std::cout << "Remove the Malfunction - Loss of visibility" << std::endl;
                     invis_count = 0;
                     invis_recover_count = 0;
@@ -132,12 +227,14 @@ void SmokeMergedDetectMalf::malf_process(const cv::Mat &frame1, const cv::Mat &f
                 invis_recover_count = 0;
             }
         }
-        std::cout << "INVIS:" << invis_flag << ", EXP:" << exposed_flag << ", DAR:" << dark_flag
-                  << ", B:" << blackout << ", value=" << comp_value << ", len=" << comp_len
+        std::cout << "CONTR:" << contr_flag << "INVIS:" << invis_flag << ", EXP:" << exposed_flag << ", DAR:"
+                  << dark_flag
+                  << ", B:" << blackout << ", value=" << comp_value
                   << ", ic=" << invis_count << ", irc=" << invis_recover_count << ", bc=" << blackout_count
                   << std::endl;
     }
 }
+
 
 void
 SmokeMergedDetectMalf::compare_variance_frames(const cv::Mat &var_frame1, const cv::Mat &var_frame2, cv::Mat &result,
@@ -242,7 +339,7 @@ void SmokeMergedDetectMalf::run(std::vector<std::string> &videos) {
         }
 
         int frame_count = 0;
-        cv::Mat frame, gray, bgimage, fgmask;
+        cv::Mat frame, frame_r, gray, gray_o, bgimage, fgmask;
         cv::Ptr<cv::BackgroundSubtractor> bg_model = cv::createBackgroundSubtractorMOG2(bg_history_len, 30, false);
 
         while (cap.isOpened()) {
@@ -252,8 +349,13 @@ void SmokeMergedDetectMalf::run(std::vector<std::string> &videos) {
                 break;
             }
 
-            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
-            gray = letterbox(gray);
+//            cv::imwrite("/home/manu/tmp/1.bmp", frame);
+
+//            cv::resize(frame, frame_r, cv::Size(640, 480));
+            cv::cvtColor(frame, frame_r, cv::COLOR_BGR2RGB);
+            cv::cvtColor(frame_r, gray_o, cv::COLOR_RGB2GRAY);
+            cv::resize(gray_o, gray, cv::Size(640, 480));
+//            gray = letterbox(gray);
             bg_model->apply(gray, fgmask);
             bg_model->getBackgroundImage(bgimage);
 

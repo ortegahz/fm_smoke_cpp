@@ -45,10 +45,12 @@ private:
     int invis_count;
     int invis_recover_count;
     bool invis_flag;
+    bool contr_flag;
     bool blackout;
     bool exposed_flag;
     bool dark_flag;
     int blackout_count;
+    int exposed_count;
 };
 
 #endif // SMOKE_MERGED_DETECT_MALF_H
